@@ -55,24 +55,13 @@ The robot follows a sensor-driven control loop:
 
 Boundary avoidance takes priority over opponent engagement to reduce the risk of leaving the arena.
 
-## Circuit Diagram
-
-<!-- Add your circuit schematic or wiring diagram here. -->
-
-![Circuit Diagram](images/circuit-diagram.png)
-
 ## Mechanical Design
 
 The robot's chassis and structural components were custom-designed and 3D-printed. This allowed the mechanical layout to be tailored to the sensor positions, motor arrangement, and lifting-hook mechanism.
 
-<!-- Add photos of the chassis, lifting hook, and assembled robot here. -->
-
-![Robot Prototype](images/robot-prototype.jpg)
+<img width="1141" height="768" alt="image" src="https://github.com/user-attachments/assets/8395197d-886f-4ecc-a458-2409c5cf815b" />
 
 
-### Performance Observations
-
-<!-- Add observations about opponent detection, attack success rate, boundary recovery, and reliability here. -->
 
 ## How to Run
 
