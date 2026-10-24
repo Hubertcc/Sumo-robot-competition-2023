@@ -1,0 +1,472 @@
+#include <Arduino.h>
+#include <Servo.h>
+
+// Ultrasonic 
+const int TRIG_LEFT  = 2;
+const int ECHO_LEFT  = 3;
+
+const int TRIG_CENTER = 4;
+const int ECHO_CENTER = 5;
+
+const int TRIG_RIGHT = 6;
+const int ECHO_RIGHT = 7;
+
+// IR 
+const int IR_SENSOR = 8;
+
+// lift servo 
+const int SERVO_PIN = 9;
+
+// BTS7960-Left 
+const int LEFT_RPWM = 10;
+const int LEFT_LPWM = 11;
+
+// BTS7960-Right
+const int RIGHT_RPWM = 12;
+const int RIGHT_LPWM = 13;
+
+////////////////////////////
+
+const int TARGET_DISTANCE = 20;  
+const int SEARCH_DISTANCE = 100;  
+
+const int ATTACK_SPEED = 220;
+const int SEARCH_SPEED = 150;
+const int TURN_SPEED = 170;
+const int ESCAPE_SPEED = 200;
+
+
+const int SERVO_REST = 0;
+const int SERVO_LIFT = 90;
+
+
+Servo liftingServo;
+
+
+enum RobotState {
+  SEARCHING,
+  TURNING_LEFT,
+  TURNING_RIGHT,
+  ATTACKING,
+  ESCAPING
+};
+
+RobotState state = SEARCHING;
+
+
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // Ultrasonic
+  pinMode(TRIG_LEFT, OUTPUT);
+  pinMode(ECHO_LEFT, INPUT);
+
+  pinMode(TRIG_CENTER, OUTPUT);
+  pinMode(ECHO_CENTER, INPUT);
+
+  pinMode(TRIG_RIGHT, OUTPUT);
+  pinMode(ECHO_RIGHT, INPUT);
+
+  // IR
+  pinMode(IR_SENSOR, INPUT);
+
+  // Motor
+  pinMode(LEFT_RPWM, OUTPUT);
+  pinMode(LEFT_LPWM, OUTPUT);
+
+  pinMode(RIGHT_RPWM, OUTPUT);
+  pinMode(RIGHT_LPWM, OUTPUT);
+
+  // Servo
+  liftingServo.attach(SERVO_PIN);
+  liftingServo.write(SERVO_REST);
+
+  stopMotors();
+
+  delay(1000);
+
+  Serial.println("Robot started");
+}
+
+
+
+
+void loop() {
+
+  if (boundaryDetected()) {
+
+    state = ESCAPING;
+
+    stopMotors();
+    moveBackward(ESCAPE_SPEED);
+    delay(250);
+
+    stopMotors();
+
+    turnAround();
+
+    moveForward(ESCAPE_SPEED);
+    delay(300);
+
+    stopMotors();
+
+    state = SEARCHING;
+
+    return;
+  }
+
+//////
+
+  float leftDistance = getFilteredDistance(
+    TRIG_LEFT,
+    ECHO_LEFT
+  );
+
+  float centerDistance = getFilteredDistance(
+    TRIG_CENTER,
+    ECHO_CENTER
+  );
+
+  float rightDistance = getFilteredDistance(
+    TRIG_RIGHT,
+    ECHO_RIGHT
+  );
+
+
+  //Serial.print("L: ");
+  //Serial.print(leftDistance);
+
+  //Serial.print(" cm | C: ");
+ // Serial.print(centerDistance);
+
+ // Serial.print(" cm | R: ");
+ // Serial.print(rightDistance);
+
+ // Serial.println(" cm");
+
+
+  bool leftTarget =
+    leftDistance > 0 &&
+    leftDistance < SEARCH_DISTANCE;
+
+  bool centerTarget =
+    centerDistance > 0 &&
+    centerDistance < SEARCH_DISTANCE;
+
+  bool rightTarget =
+    rightDistance > 0 &&
+    rightDistance < SEARCH_DISTANCE;
+
+
+  if (!leftTarget && !centerTarget && !rightTarget) {
+
+    state = SEARCHING;
+
+    searchForTarget();
+
+    return;
+  }
+
+
+
+  if (centerTarget &&
+      centerDistance < TARGET_DISTANCE) {
+
+    state = ATTACKING;
+
+    attackTarget(
+      centerDistance
+    );
+
+    return;
+  }
+
+
+
+  if (leftTarget &&
+      (!centerTarget || leftDistance < centerDistance) &&
+      (!rightTarget || leftDistance < rightDistance)) {
+
+    state = TURNING_LEFT;
+
+    turnLeft(TURN_SPEED);
+
+    return;
+  }
+
+
+
+  if (rightTarget &&
+      (!centerTarget || rightDistance < centerDistance) &&
+      (!leftTarget || rightDistance < leftDistance)) {
+
+    state = TURNING_RIGHT;
+
+    turnRight(TURN_SPEED);
+
+    return;
+  }
+
+
+
+  if (centerTarget) {
+
+    state = ATTACKING;
+
+    moveForward(ATTACK_SPEED);
+
+    return;
+  }
+}
+
+
+//Ultrasonic
+
+float readDistance(
+  int trigPin,
+  int echoPin
+) {
+
+ 
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+ 
+  long duration = pulseIn(
+    echoPin,
+    HIGH,
+    30000
+  );
+
+
+  if (duration == 0) {
+    return -1;
+  }
+
+  float distance = duration * 0.0343 / 2.0;
+
+  return distance;
+}
+
+//median filter
+
+float getFilteredDistance(
+  int trigPin,
+  int echoPin
+) {
+
+  float samples[3];
+
+  for (int i = 0; i < 3; i++) {
+
+    samples[i] = readDistance(
+      trigPin,
+      echoPin
+    );
+
+    delay(5);
+  }
+
+//3
+
+  if (samples[0] > samples[1]) {
+    float temp = samples[0];
+    samples[0] = samples[1];
+    samples[1] = temp;
+  }
+
+  if (samples[1] > samples[2]) {
+    float temp = samples[1];
+    samples[1] = samples[2];
+    samples[2] = temp;
+  }
+
+  if (samples[0] > samples[1]) {
+    float temp = samples[0];
+    samples[0] = samples[1];
+    samples[1] = temp;
+  }
+
+  // Middle value = median
+  return samples[1];
+}
+
+
+//def
+
+void searchForTarget() {
+
+  // Slowly rotate to scan the arena
+  turnLeft(SEARCH_SPEED);
+}
+
+
+
+
+void attackTarget(
+  float distance
+) {
+
+
+  liftingServo.write(SERVO_LIFT);
+
+  delay(150);
+
+
+  moveForward(ATTACK_SPEED);
+
+  
+
+  unsigned long startTime = millis();
+
+  while (true) {
+
+    
+    if (boundaryDetected()) {
+
+      stopMotors();
+
+      liftingServo.write(SERVO_REST);
+
+      return;
+    }
+
+ 
+    float currentDistance =
+      getFilteredDistance(
+        TRIG_CENTER,
+        ECHO_CENTER
+      );
+
+   
+    if (currentDistance < 0 ||
+        currentDistance > SEARCH_DISTANCE) {
+
+      stopMotors();
+
+
+      delay(100);
+
+      state = SEARCHING;
+
+      return;
+    }
+
+
+    moveForward(ATTACK_SPEED);
+
+ 
+    if (millis() - startTime > 5000) {
+
+      stopMotors();
+
+      liftingServo.write(SERVO_REST);
+
+      state = SEARCHING;
+
+      return;
+    }
+  }
+}
+
+
+//Motor
+void moveForward(int speed) {
+
+  speed = constrain(speed, 0, 255);
+
+  // Left Forward
+  analogWrite(LEFT_RPWM, speed);
+  analogWrite(LEFT_LPWM, 0);
+
+  // Right 
+  analogWrite(RIGHT_RPWM, speed);
+  analogWrite(RIGHT_LPWM, 0);
+}
+
+
+void moveBackward(int speed) {
+
+  speed = constrain(speed, 0, 255);
+
+  analogWrite(LEFT_RPWM, 0);
+  analogWrite(LEFT_LPWM, speed);
+
+  analogWrite(RIGHT_RPWM, 0);
+  analogWrite(RIGHT_LPWM, speed);
+}
+
+
+void turnLeft(int speed) {
+
+  speed = constrain(speed, 0, 255);
+
+  // Left reverse
+  analogWrite(LEFT_RPWM, 0);
+  analogWrite(LEFT_LPWM, speed);
+
+  // Right forward
+  analogWrite(RIGHT_RPWM, speed);
+  analogWrite(RIGHT_LPWM, 0);
+}
+
+
+void turnRight(int speed) {
+
+  speed = constrain(speed, 0, 255);
+
+  // Leftforward
+  analogWrite(LEFT_RPWM, speed);
+  analogWrite(LEFT_LPWM, 0);
+
+  // Right reverse
+  analogWrite(RIGHT_RPWM, 0);
+  analogWrite(RIGHT_LPWM, speed);
+}
+
+
+void stopMotors() {
+
+  analogWrite(LEFT_RPWM, 0);
+  analogWrite(LEFT_LPWM, 0);
+
+  analogWrite(RIGHT_RPWM, 0);
+  analogWrite(RIGHT_LPWM, 0);
+}
+
+
+//140turn
+
+void turnAround() {
+
+
+  turnLeft(TURN_SPEED);
+
+  delay(600);
+
+  stopMotors();
+
+  delay(100);
+}
+
+
+
+bool boundaryDetected() {
+
+  int sensorValue =
+    digitalRead(IR_SENSOR);
+
+
+  if (sensorValue == LOW) {
+    return true;
+  }
+
+  return false;
+}
